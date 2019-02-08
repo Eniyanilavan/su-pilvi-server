@@ -35,6 +35,7 @@ app.use((req,res,next)=>{
 });
 
 app.get('/',(req,res)=>{
+    console.log("hii");
     res.status(200).send();
 });
 
