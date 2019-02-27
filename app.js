@@ -2,6 +2,10 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const {Pool} = require('pg');
 const {CONST} = require('./conts/conts');
+var AWS = require('aws-sdk');
+var AWS_CREDS = require('./creds').creds;
+AWS.config.update({region: 'us-east-1',accessKeyId:AWS_CREDS.accessKeyId,secretAccessKey:AWS_CREDS.secretAccessKey});
+var cloudformation = new AWS.CloudFormation({apiVersion: '2010-05-15'});
 
 const pool = new Pool({
     user : "postgres",
@@ -13,21 +17,28 @@ const pool = new Pool({
 
 const app = express();
 
-app.use(bodyParser.json());
+app.use(bodyParser.json({limit:"50mb"}));
+
+app.use((req,res,next)=>{
+    res.setHeader("Access-Control-Allow-Origin","*");
+    res.setHeader("Access-Control-Allow-Methods","GET,POST");
+    res.setHeader("Access-Control-Allow-Headers","Content-Type");
+    next();
+})
 
 app.get('/login',async (req,res)=>{
     console.log("login hit");
-    var body = req.body;
+    var body = req.query;
     var client = await pool.connect();
     await client.query(`SELECT * FROM user_login WHERE email like $1`,[body.email])
     .then(db_res=>{
         if(db_res.rowCount === 0){
-            res.status(403).send("no_user");
+            res.status(404).send("no_user");
         }
         else{
             var row = db_res.rows[0];
             if(body.password === row.password){
-                res.send(200);
+                res.sendStatus(200);
             }
             else{
                 res.status(403).send("unauthorized");
@@ -41,7 +52,44 @@ app.get('/login',async (req,res)=>{
         }
     })
     client.release();
-    res.status(200).send();
+});
+
+app.post('/save',async (req,res)=>{
+    var body = req.body;
+    console.log("save_hit");
+    var client = await pool.connect();
+    await client.query(`UPDATE templates SET json = $1, preview = $4 WHERE email = $2 AND name = $3`,[body.json,body.email,body.name,body.svg])
+    .then(db_res=>{
+        if(db_res.rowCount === 1){
+            res.sendStatus(200);
+        }
+        else{
+            res.sendStatus(500);
+        }
+    })
+    .catch(err=>{
+        console.log(err);
+        res.sendStatus(500);
+    })
+    client.release();
+});
+
+app.post("/deploy",(req,res)=>{
+    console.log("request recieved");
+    console.log(req.body);
+    var params = {
+        StackName: 'CapsuleCorp1', /* required */
+        Capabilities: [
+            "CAPABILITY_IAM",
+            "CAPABILITY_NAMED_IAM" 
+          ],
+        OnFailure: "DELETE",
+        TemplateBody: req.body.yaml,
+      };
+      cloudformation.createStack(params, function(err, data) {
+        if (err) console.log(err, err.stack); // an error occurred
+        else     console.log(data);           // successful response
+      });
 });
 
 app.post('/signup',async (req,res)=>{
@@ -50,7 +98,7 @@ app.post('/signup',async (req,res)=>{
     var client = await pool.connect();
     await client.query(`INSERT INTO user_login (uname,email,password,iam) values($1,$2,$3,$4)`,[body.uname,body.email,body.password,body.iam])
     .then(db_res=>{
-        res.send(200);
+        res.sendStatus(200);
     })
     .catch(err=>{
         console.log(err.message);
@@ -59,7 +107,6 @@ app.post('/signup',async (req,res)=>{
         }
     })
     client.release();
-    res.status(200).send();
 });
 
 app.get('/dashboard/:email',async (req,res)=>{
@@ -68,7 +115,12 @@ app.get('/dashboard/:email',async (req,res)=>{
     var client = await pool.connect();
     await client.query(`SELECT * FROM templates WHERE email LIKE $1`,[req.params.email])
     .then(rows=>{
-        res.status(200).send(JSON.stringify({count:rows.rowCount,archs:rows.rows}))
+        if(rows.rowCount === 0){
+            res.sendStatus(404);
+        }
+        else{
+            res.status(200).send(JSON.stringify({count:rows.rowCount,archs:rows.rows}));
+        }
     })
     .catch(err=>{
         res.send(500)
@@ -77,6 +129,7 @@ app.get('/dashboard/:email',async (req,res)=>{
 });
 
 app.post('/dashboard/:email',async (req,res)=>{
+    // if(req.params.email.match(/^(a-zA-Z0-9)+/g))
     var body = req.body;
     console.log("archs post hit");
     var client = await pool.connect();

@@ -9,6 +9,7 @@
   "author": "byte force",
   "license": "ISC",
   "dependencies": {
+    "aws-sdk": "^2.410.0",
     "body-parser": "^1.18.3",
     "express": "^4.16.4",
     "nodemon": "^1.18.9",
