@@ -15,6 +15,28 @@ const pool = new Pool({
     database : "su_pilvi"
 })
 
+const create_tables = async (email,body)=>{
+    const pool1 = new Pool({
+        user : "postgres",
+        password : "Eniyan007!",
+        host : "localhost",
+        port : "5432",
+        database : email
+    })
+    var client1 = await pool1.connect();
+    body.log_array.map(async name=>{
+        var table_name = name.replace(/[\-\.@\^]/g,"_");
+        await client1.query(`CREATE TABLE ${table_name}(category varchar, event_code integer, event_type integer, log_file varchar, message varchar, record_number integer, type varchar, source_name varchar, date date)`)
+        .then(rows=>{
+            console.log(rows);
+        })
+        .catch(err=>{
+            console.log(err);
+        })
+    })
+    client1.release();
+}
+
 const app = express();
 
 app.use(bodyParser.json({limit:"50mb"}));
@@ -24,6 +46,12 @@ app.use((req,res,next)=>{
     res.setHeader("Access-Control-Allow-Methods","GET,POST");
     res.setHeader("Access-Control-Allow-Headers","Content-Type");
     next();
+})
+
+app.get('/eventloger/:file',(req,res)=>{
+    console.log("hi");
+    var path = __dirname + "/download/eventloger/"+req.params.file;
+    res.download(path);
 })
 
 app.get('/login',async (req,res)=>{
@@ -74,22 +102,46 @@ app.post('/save',async (req,res)=>{
     client.release();
 });
 
-app.post("/deploy",(req,res)=>{
+app.post("/deploy", async (req,res)=>{
     console.log("request recieved");
-    console.log(req.body);
+    var body = (req.body);
+    console.log(body);
+    if(body.log){
+       var email = (body.email.replace(/[\.@\^]/g,"_"));
+        var client = await pool.connect();
+        await client.query(`CREATE DATABASE ${email}`)
+        .then(async db_rows=>{
+            create_tables(email,body);
+        })
+        .catch(err=>{
+            if(err.message.includes(`database "${email}" already exists`)){
+                create_tables(email,body);
+            }
+            else{
+                console.log(err)
+            }
+        })
+        client.release();
+    }
     var params = {
-        StackName: 'CapsuleCorp1', /* required */
+        StackName: body.title, /* required */
         Capabilities: [
             "CAPABILITY_IAM",
             "CAPABILITY_NAMED_IAM" 
           ],
         OnFailure: "DELETE",
-        TemplateBody: req.body.yaml,
-      };
-      cloudformation.createStack(params, function(err, data) {
-        if (err) console.log(err, err.stack); // an error occurred
-        else     console.log(data);           // successful response
-      });
+        TemplateBody: body.yaml,
+    };
+    cloudformation.createStack(params, function(err, data) {
+        if (err) {
+            console.log(err, err.stack);
+            res.sendStatus(404);
+        }
+        else {
+            console.log(data);           // successful response
+            res.sendStatus(200);
+        }    
+    });
 });
 
 app.post('/signup',async (req,res)=>{
