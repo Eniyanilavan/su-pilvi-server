@@ -2,6 +2,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const {Pool} = require('pg');
 const {CONST} = require('./conts/conts');
+const multipart = require('multiparty');
 var AWS = require('aws-sdk');
 var AWS_CREDS = require('./creds').creds;
 AWS.config.update({region: 'us-east-1',accessKeyId:AWS_CREDS.accessKeyId,secretAccessKey:AWS_CREDS.secretAccessKey});
@@ -39,11 +40,25 @@ const create_tables = async (email,body)=>{
 
 const app = express();
 
-app.use(bodyParser.json({limit:"50mb"}));
+const form_data = (req,res,next)=>{
+    let form = new multipart.Form();
+    form.on('part',(part)=>{
+        part.on('data',data=>{
+            req.formData = new Buffer(data).toString();
+            next();
+        })
+        .on('close',()=>{
+            next();
+        })
+    })
+    form.parse(req);
+}
+
+app.use(bodyParser.json({limit:"500mb"}));
 
 app.use((req,res,next)=>{
     res.setHeader("Access-Control-Allow-Origin","*");
-    res.setHeader("Access-Control-Allow-Methods","GET,POST");
+    res.setHeader("Access-Control-Allow-Methods","GET,POST,DELETE");
     res.setHeader("Access-Control-Allow-Headers","Content-Type");
     next();
 })
@@ -144,6 +159,12 @@ app.post("/deploy", async (req,res)=>{
     });
 });
 
+app.post('/bot',async (req,res)=>{
+    var body = (req.body);
+    console.log(body);
+    res.sendStatus(200);
+})
+
 app.post('/signup',async (req,res)=>{
     console.log("signup hit");
     body = req.body;
@@ -179,6 +200,19 @@ app.get('/dashboard/:email',async (req,res)=>{
     })
     client.release();
 });
+
+app.delete('/delete',async (req,res)=>{
+    var client = await pool.connect();
+    client.query(`DELETE FROM templates WHERE name=$1`,[req.body.name])
+    .then(rows=>{
+        res.sendStatus(200);
+    })
+    .catch(err=>{
+        console.log(err);
+        res.sendStatus(500);
+    })
+    client.release();
+})
 
 app.post('/dashboard/:email',async (req,res)=>{
     // if(req.params.email.match(/^(a-zA-Z0-9)+/g))
